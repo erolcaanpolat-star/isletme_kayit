@@ -780,11 +780,15 @@ with tab2:
         ])
 
         # ---------------------------------------------------------
-        # 1. ALT SEKME: YENİ İŞLEM (Satış / Tahsilat Girişi)
+        # 1. ALT SEKME: YENİ İŞLEM (Satış / Tahsilat / Gider Girişi)
         # ---------------------------------------------------------
         with alt_sekme1:
             st.subheader("Yeni Toptan İşlem Girişi")
-            islem_turu = st.selectbox("İşlem Tipi", ["Satış (Borç Ekle)", "Tahsilat (Borç Düş/Alacak)"], key="toptan_islem_tipi_select_yeni")
+            islem_turu = st.selectbox(
+                "İşlem Tipi", 
+                ["Satış (Borç Ekle)", "Tahsilat (Borç Düş/Alacak)", "Gider / Masraf (Yol, Muhtelif vb.)"], 
+                key="toptan_islem_tipi_select_yeni"
+            )
 
             secili_firma_toptan = st.selectbox("Firma Seçin", firma_listesi, key="toptan_firma_secim_yeni")
             
@@ -810,24 +814,34 @@ with tab2:
                     birim_fiyat = st.number_input("Birim Fiyat (TL)", min_value=0.0, step=0.5, value=15.0, format="%.2f")
                     toplam_tutar = adet * birim_fiyat
                     st.info(f"Hesaplanan Tutar: **{toplam_tutar:,.2f} TL**")
+                elif islem_turu == "Gider / Masraf (Yol, Muhtelif vb.)":
+                    adet = 1
+                    birim_fiyat = 0.0
+                    toplam_tutar = st.number_input("Masraf Tutarı (TL)", min_value=0.0, step=10.0, value=100.0, format="%.2f")
+                    st.warning(f"Masraf Tutarı: **{toplam_tutar:,.2f} TL**")
                 else:
                     adet = 0
                     birim_fiyat = 0.0
                     toplam_tutar = st.number_input("Tahsil Edilen Tutar (TL)", min_value=0.0, step=50.0, value=2430.0, format="%.2f")
                     st.success(f"Tahsilat Tutarı: **{toplam_tutar:,.2f} TL**")
 
-                aciklama = st.text_input("Açıklama / Not")
+                aciklama = st.text_input("Açıklama / Not (Örn: Yol ücreti, muhtelif vb.)")
                 
                 kaydet = st.form_submit_button("💾 İşlemi Kaydet", type="primary")
                 if kaydet:
-                    t_tur = "Satış" if islem_turu == "Satış (Borç Ekle)" else "Tahsilat"
+                    if islem_turu == "Satış (Borç Ekle)":
+                        t_tur = "Satış"
+                    elif islem_turu == "Gider / Masraf (Yol, Muhtelif vb.)":
+                        t_tur = "Gider"
+                    else:
+                        t_tur = "Tahsilat"
+                        
                     client.execute("""
                         INSERT INTO toptan_satis (firma_adi, tarih, islem_turu, adet, birim_fiyat, toplam_tutar, aciklama)
                         VALUES (?, ?, ?, ?, ?, ?, ?)
                     """, [secili_firma_toptan, tarih.strftime("%Y-%m-%d"), t_tur, adet, birim_fiyat, toplam_tutar, aciklama])
                     st.success(f"{t_tur} başarıyla kaydedildi!")
                     st.rerun()
-
         # ---------------------------------------------------------
         # 2. ALT SEKME: TARİHE GÖRE İŞLEMLER (Süzme, Düzenleme, Silme)
         # ---------------------------------------------------------
