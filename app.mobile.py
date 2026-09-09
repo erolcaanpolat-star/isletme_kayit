@@ -1031,6 +1031,7 @@ with tab2:
                 st.warning(f"🔍 {secilen_firma} firmasına ait bu tarih aralığında hareket bulunamadı.")
 
         # ---------------------------------------------------------
+        # ---------------------------------------------------------
         # 4. ALT SEKME: TÜM KAYITLAR & GENEL YÖNETİM
         # ---------------------------------------------------------
         with alt_sekme4:
