@@ -5,7 +5,7 @@ import libsql_client as libsql
 import base64
 from datetime import datetime, timedelta
 
-# Sayfa Ayarları
+# Sayfa Ayarları-
 st.set_page_config(
     page_title="Midyeci Abla Canlı Takip",
     page_icon="🦪",
