@@ -328,6 +328,7 @@ with tab1:
     islem_modu = st.radio("İşlem Seçin:", ["🔴 Yeni Hareket", "📅 Tarihe Göre Bul", "📈 Dükkan Ekstresi", "📊 Aylık Karşılaştırma", "📋 Tüm Kayıtları Yönet", "🗓️ İki Tarih Arası Ciro"], horizontal=True)
 
     if islem_modu == "🔴 Yeni Hareket":
+        # Sabit kategoriler arasına Dükkan Gideri de ekliyoruz
         kategoriler = ["Midye", "Çiğ Köfte", "İçecek", "Dükkan Gideri", "Personel", "Diğer"]
         
         with st.form("dukkan_form", clear_on_submit=False):
@@ -337,16 +338,17 @@ with tab1:
                 tarih_secim = st.date_input("Tarih", datetime.now())
                 kategori = st.selectbox("Kategori", kategoriler, index=0)
             with col2:
-                urun_adi = st.text_input("Ürün / Detay Açıklaması", placeholder="Örn: Midye Satışı veya Kira Gideri")
+                # Manuel Gider Türü veya Detay Açıklaması
+                urun_adi = st.text_input("Ürün / Detay Açıklaması (Giderse Türü)", placeholder="Örn: Midye Satışı veya Elektrik, Su, Nakliye")
                 miktar = st.number_input("Miktar / Adet", min_value=1, value=1, step=1)
                 
                 son_fiyat_sorgu = run_query_df("SELECT birim_fiyat FROM dukkan_hareket WHERE kategori=? AND birim_fiyat > 0 ORDER BY id DESC LIMIT 1", [kategori])
                 varsayilan_fiyat = float(son_fiyat_sorgu['birim_fiyat'].iloc[0]) if not son_fiyat_sorgu.empty else 0.0
                 
-                birim_fiyat = st.number_input("Birim Fiyat (TL)", min_value=0.0, value=varsayilan_fiyat, step=0.5, format="%.2f")
+                birim_fiyat = st.number_input("Birim Fiyat / Tutar (TL)", min_value=0.0, value=varsayilan_fiyat, step=0.5, format="%.2f")
 
             hesaplanan_tutar = miktar * birim_fiyat
-            st.info(f"Hesaplanan Toplam Tutar: **{hesaplanan_tutar:,.2f} TL** (Seçilen kategori son fiyatı: {varsayilan_fiyat} TL)")
+            st.info(f"Hesaplanan Toplam Tutar: **{hesaplanan_tutar:,.2f} TL**")
 
             submitted = st.form_submit_button("💾 Dükkan Hareketi Kaydet")
             if submitted:
@@ -361,7 +363,7 @@ with tab1:
                     st.success(f"Dükkan hareketi başarıyla kaydedildi! Toplam: {hesaplanan_tutar:,.2f} TL ({tam_tarih_saat})")
                     st.rerun()
                 else:
-                    st.warning("Lütfen geçerli bir miktar ve birim fiyat girin!")
+                    st.warning("Lütfen geçerli bir miktar ve tutar girin!")
 
         st.markdown("---")
         st.subheader("📋 Bugünün Dükkan Kayıtları")
@@ -403,7 +405,7 @@ with tab1:
 
             c1, c2, c3, c4 = st.columns(4)
             with c1:
-                st.metric("Seçilen Gün Ciro", f"{toplam_ciro:,.2f} TL")
+                st.metric("Seçilen Gün Brüt Ciro", f"{toplam_ciro:,.2f} TL")
             with c2:
                 st.metric("Toplam Midye", f"{int(toplam_midye):,} adet")
             with c3:
@@ -413,9 +415,9 @@ with tab1:
             
             st.markdown("---")
             c_m1, c_m2, c_m3 = st.columns(3)
-            c_m1.metric("Günün Geliri", f"{toplam_gelir:,.2f} TL")
-            c_m2.metric("Günün Gideri", f"{toplam_gider:,.2f} TL")
-            c_m3.metric("Net Durum", f"{(toplam_gelir - toplam_gider):,.2f} TL")
+            c_m1.metric("Günün Toplam Geliri", f"{toplam_gelir:,.2f} TL")
+            c_m2.metric("Günün Toplam Gideri", f"{toplam_gider:,.2f} TL")
+            c_m3.metric("Net Durum (Gider Düşmüş)", f"{(toplam_gelir - toplam_gider):,.2f} TL")
 
             st.markdown("---")
             st.dataframe(df_dukkan_gun, use_container_width=True)
@@ -536,12 +538,11 @@ with tab1:
             st.warning("Belirtilen kriterlerde ve tarih aralığında herhangi bir hareket bulunamadı.")
 
     elif islem_modu == "📊 Aylık Karşılaştırma":
-        st.subheader("📊 İki Ayın Performans ve Ürün Kıyaslama Raporu")
+        st.subheader("📊 İki Ayın Performans ve Gider Kıyaslama Raporu")
         
         df_aylar = run_query_df("""
             SELECT DISTINCT SUBSTR(tarih, 1, 7) as yil_ay 
             FROM dukkan_hareket 
-            WHERE islem_tipi = 'Günlük Satış (Gelir)' 
             ORDER BY yil_ay DESC
         """)
         
@@ -558,25 +559,30 @@ with tab1:
             secilen_ay_2 = st.selectbox("2. Ayı Seçin (Sağ Taraf):", mevcut_aylar, index=0, key="ay_secim_2")
         
         df_ay1 = run_query_df("""
-            SELECT SUM(tutar) as toplam_ciro,
-                   SUM(CASE WHEN kategori = 'Midye' THEN miktar ELSE 0 END) as toplam_midye,
-                   SUM(CASE WHEN kategori = 'Çiğ Köfte' THEN miktar ELSE 0 END) as toplam_cigkofte,
-                   SUM(CASE WHEN kategori = 'İçecek' THEN miktar ELSE 0 END) as toplam_icecek
+            SELECT SUM(CASE WHEN islem_tipi = 'Günlük Satış (Gelir)' THEN tutar ELSE 0 END) as toplam_ciro,
+                   SUM(CASE WHEN islem_tipi = 'Dükkan Gideri (Gider)' THEN tutar ELSE 0 END) as toplam_gider,
+                   SUM(CASE WHEN kategori = 'Midye' AND islem_tipi = 'Günlük Satış (Gelir)' THEN miktar ELSE 0 END) as toplam_midye,
+                   SUM(CASE WHEN kategori = 'Çiğ Köfte' AND islem_tipi = 'Günlük Satış (Gelir)' THEN miktar ELSE 0 END) as toplam_cigkofte,
+                   SUM(CASE WHEN kategori = 'İçecek' AND islem_tipi = 'Günlük Satış (Gelir)' THEN miktar ELSE 0 END) as toplam_icecek
             FROM dukkan_hareket 
-            WHERE islem_tipi = 'Günlük Satış (Gelir)' AND SUBSTR(tarih, 1, 7) = ?
+            WHERE SUBSTR(tarih, 1, 7) = ?
         """, [secilen_ay_1])
         
         df_ay2 = run_query_df("""
-            SELECT SUM(tutar) as toplam_ciro,
-                   SUM(CASE WHEN kategori = 'Midye' THEN miktar ELSE 0 END) as toplam_midye,
-                   SUM(CASE WHEN kategori = 'Çiğ Köfte' THEN miktar ELSE 0 END) as toplam_cigkofte,
-                   SUM(CASE WHEN kategori = 'İçecek' THEN miktar ELSE 0 END) as toplam_icecek
+            SELECT SUM(CASE WHEN islem_tipi = 'Günlük Satış (Gelir)' THEN tutar ELSE 0 END) as toplam_ciro,
+                   SUM(CASE WHEN islem_tipi = 'Dükkan Gideri (Gider)' THEN tutar ELSE 0 END) as toplam_gider,
+                   SUM(CASE WHEN kategori = 'Midye' AND islem_tipi = 'Günlük Satış (Gelir)' THEN miktar ELSE 0 END) as toplam_midye,
+                   SUM(CASE WHEN kategori = 'Çiğ Köfte' AND islem_tipi = 'Günlük Satış (Gelir)' THEN miktar ELSE 0 END) as toplam_cigkofte,
+                   SUM(CASE WHEN kategori = 'İçecek' AND islem_tipi = 'Günlük Satış (Gelir)' THEN miktar ELSE 0 END) as toplam_icecek
             FROM dukkan_hareket 
-            WHERE islem_tipi = 'Günlük Satış (Gelir)' AND SUBSTR(tarih, 1, 7) = ?
+            WHERE SUBSTR(tarih, 1, 7) = ?
         """, [secilen_ay_2])
         
         ciro_1 = df_ay1.iloc[0]['toplam_ciro'] if not df_ay1.empty and df_ay1.iloc[0]['toplam_ciro'] is not None else 0.0
+        gider_1 = df_ay1.iloc[0]['toplam_gider'] if not df_ay1.empty and df_ay1.iloc[0]['toplam_gider'] is not None else 0.0
+        
         ciro_2 = df_ay2.iloc[0]['toplam_ciro'] if not df_ay2.empty and df_ay2.iloc[0]['toplam_ciro'] is not None else 0.0
+        gider_2 = df_ay2.iloc[0]['toplam_gider'] if not df_ay2.empty and df_ay2.iloc[0]['toplam_gider'] is not None else 0.0
         
         midye_1 = df_ay1.iloc[0]['toplam_midye'] if not df_ay1.empty and df_ay1.iloc[0]['toplam_midye'] is not None else 0
         midye_2 = df_ay2.iloc[0]['toplam_midye'] if not df_ay2.empty and df_ay2.iloc[0]['toplam_midye'] is not None else 0
@@ -586,18 +592,40 @@ with tab1:
         else:
             ciro_degisim = 100.0 if ciro_2 > 0 else 0.0
 
-        st.markdown(f"### 🗓️ {secilen_ay_1} ➔ {secilen_ay_2} Performans Özeti")
+        st.markdown(f"### 🗓️ {secilen_ay_1} ➔ {secilen_ay_2} Performans & Gider Özeti")
         
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric(f"{secilen_ay_1} Ciro", f"{ciro_1:,.2f} TL")
+            st.metric(f"{secilen_ay_1} Net Durum", f"{(ciro_1 - gider_1):,.2f} TL", help=f"Brüt Ciro: {ciro_1:,.2f} | Gider: {gider_1:,.2f}")
         with col2:
-            st.metric(f"{secilen_ay_2} Ciro", f"{ciro_2:,.2f} TL", delta=f"%{ciro_degisim:+.1f}")
+            st.metric(f"{secilen_ay_2} Net Durum", f"{(ciro_2 - gider_2):,.2f} TL", delta=f"%{ciro_degisim:+.1f}", help=f"Brüt Ciro: {ciro_2:,.2f} | Gider: {gider_2:,.2f}")
         with col3:
-            st.metric("Ciro Farkı", f"{(ciro_2 - ciro_1):+,.2f} TL")
+            st.metric("Brüt Ciro Farkı", f"{(ciro_2 - ciro_1):+,.2f} TL")
             
         st.markdown("---")
         
+        # --- AYLIK GİDER DETAYLARI ---
+        st.subheader("💸 Ay Bazlı Gider Dağılımları")
+        g_col1, g_col2 = st.columns(2)
+        
+        df_gider_detay_1 = run_query_df("SELECT urun_adi as Gider_Turu, SUM(tutar) as Toplam_Tutar FROM dukkan_hareket WHERE islem_tipi = 'Dükkan Gideri (Gider)' AND SUBSTR(tarih, 1, 7) = ? GROUP BY urun_adi", [secilen_ay_1])
+        df_gider_detay_2 = run_query_df("SELECT urun_adi as Gider_Turu, SUM(tutar) as Toplam_Tutar FROM dukkan_hareket WHERE islem_tipi = 'Dükkan Gideri (Gider)' AND SUBSTR(tarih, 1, 7) = ? GROUP BY urun_adi", [secilen_ay_2])
+        
+        with g_col1:
+            st.markdown(f"**{secilen_ay_1} Giderleri (Toplam: {gider_1:,.2f} TL)**")
+            if not df_gider_detay_1.empty:
+                st.dataframe(df_gider_detay_1, use_container_width=True, hide_index=True)
+            else:
+                st.info("Bu ay gider kaydı yok.")
+                
+        with g_col2:
+            st.markdown(f"**{secilen_ay_2} Giderleri (Toplam: {gider_2:,.2f} TL)**")
+            if not df_gider_detay_2.empty:
+                st.dataframe(df_gider_detay_2, use_container_width=True, hide_index=True)
+            else:
+                st.info("Bu ay gider kaydı yok.")
+
+        st.markdown("---")
         st.subheader("📦 Ürün Bazlı Ay Karşılaştırması")
         data_karsilastirma = {
             "Kategori": ["Midye (Adet)", "Çiğ Köfte (Adet)", "İçecek (Adet)"],
@@ -627,7 +655,6 @@ with tab1:
         str_bas = bas_tarih.strftime("%Y-%m-%d")
         str_bit = bit_tarih.strftime("%Y-%m-%d")
         
-        # 1. DÜKKAN SATIŞLARI (Midye ve Midye Dolma ifadelerini tek çatıda topluyoruz)
         df_dukkan_satis = run_query_df("""
             SELECT 
                 CASE 
@@ -645,7 +672,6 @@ with tab1:
                 END
         """, [str_bas, str_bit])
         
-        # 2. TOPTAN SATIŞLAR
         try:
             df_toptan_satis = run_query_df("""
                 SELECT firma_adi as kategori, SUM(adet) as toplam_adet, SUM(toplam_tutar) as toplam_tutar
@@ -658,7 +684,6 @@ with tab1:
 
         st.markdown("---")
         
-        # --- DÜKKAN ÖZETİ ---
         st.markdown("### 🏪 Dükkan Satışları")
         if df_dukkan_satis.empty:
             st.info("Seçilen tarih aralığında dükkan satış hareketi bulunamadı.")
@@ -670,7 +695,6 @@ with tab1:
 
         st.markdown("---")
 
-        # --- TOPTAN ÖZETİ ---
         st.markdown("### 📦 Toptan Satışları")
         if df_toptan_satis.empty:
             st.info("Seçilen tarih aralığında toptan satış hareketi bulunamadı.")
@@ -682,17 +706,11 @@ with tab1:
 
         st.markdown("---")
         
-        # --- GENEL TOPLAM ---
         genel_toplam_ciro = dukkan_toplam_ciro + toptan_toplam_ciro
         st.success(f"🎯 **GENEL TOPLAM CİRO ({str_bas} ➔ {str_bit}): {genel_toplam_ciro:,.2f} TL**")
 
-        st.markdown("---")
-        
-        # --- GENEL TOPLAM ---
-        genel_toplam_ciro = dukkan_toplam_ciro + toptan_toplam_ciro
-        st.success(f"🎯 **GENEL TOPLAM CİRO ({str_bas} ➔ {str_bit}): {genel_toplam_ciro:,.2f} TL**")
     elif islem_modu == "📋 Tüm Kayıtları Yönet":
-        st.subheader("📋 Dükkan Kayıtlarını Düzenle / Sil")
+        st.subheader("📋 Dükkan Kayıtlarını Düzenle / Sil (Hata Koruma)")
         df_dukkan_all = run_query_df("SELECT * FROM dukkan_hareket ORDER BY id DESC LIMIT 50")
         
         if df_dukkan_all.empty:
@@ -701,7 +719,7 @@ with tab1:
             secilen_dukkan_id = st.selectbox(
                 "İşlem Yapılacak Kaydı Seçin:", 
                 options=df_dukkan_all["id"], 
-                format_func=lambda x: f"ID:{x} - {df_dukkan_all[df_dukkan_all['id']==x]['tarih'].values[0]} | {df_dukkan_all[df_dukkan_all['id']==x]['kategori'].values[0]} ({df_dukkan_all[df_dukkan_all['id']==x]['tutar'].values[0]} TL)"
+                format_func=lambda x: f"ID:{x} - {df_dukkan_all[df_dukkan_all['id']==x]['tarih'].values[0]} | [{df_dukkan_all[df_dukkan_all['id']==x]['islem_tipi'].values[0]}] {df_dukkan_all[df_dukkan_all['id']==x]['kategori'].values[0]} ({df_dukkan_all[df_dukkan_all['id']==x]['tutar'].values[0]} TL)"
             )
             
             dukkan_kayit = df_dukkan_all[df_dukkan_all["id"] == secilen_dukkan_id].iloc[0]
@@ -714,7 +732,7 @@ with tab1:
                 e_kategori = st.selectbox("Kategori", kategoriler, index=kategoriler.index(dukkan_kayit["kategori"]) if dukkan_kayit["kategori"] in kategoriler else 0)
                 e_urun = st.text_input("Ürün / Detay Açıklaması", value=str(dukkan_kayit["urun_adi"]) if pd.notnull(dukkan_kayit["urun_adi"]) else "")
                 e_miktar = st.number_input("Miktar / Adet", min_value=1, value=int(dukkan_kayit["miktar"]), step=1)
-                e_birim = st.number_input("Birim Fiyat (TL)", min_value=0.0, value=float(dukkan_kayit["birim_fiyat"]), step=0.5, format="%.2f")
+                e_birim = st.number_input("Birim Fiyat / Tutar (TL)", min_value=0.0, value=float(dukkan_kayit["birim_fiyat"]), step=0.5, format="%.2f")
                 
                 e_hesaplanan_tutar = e_miktar * e_birim
                 st.info(f"Güncellenecek Toplam Tutar: **{e_hesaplanan_tutar:,.2f} TL**")
@@ -742,24 +760,46 @@ with tab1:
     
     bugun_str = datetime.now().strftime("%Y-%m-%d")
     
+    # Bugünün Midye Satışı
     df_dukkan_bugun = run_query_df("""
         SELECT SUM(miktar) as adet, SUM(tutar) as ciro 
         FROM dukkan_hareket 
         WHERE SUBSTR(tarih, 1, 10) = ? AND kategori = 'Midye' AND islem_tipi = 'Günlük Satış (Gelir)'
     """, [bugun_str])
     
-    d_adet = df_dukkan_bugun['adet'].iloc[0] if not df_dukkan_bugun.empty and pd.notnull(df_dukkan_bugun['adet'].iloc[0]) else 0
-    d_ciro = df_dukkan_bugun['ciro'].iloc[0] if not df_dukkan_bugun.empty and pd.notnull(df_dukkan_bugun['ciro'].iloc[0]) else 0.0
+    # Bugünün Toplam Gideri
+    df_gider_bugun = run_query_df("""
+        SELECT SUM(tutar) as toplam_gider 
+        FROM dukkan_hareket 
+        WHERE SUBSTR(tarih, 1, 10) = ? AND islem_tipi = 'Dükkan Gideri (Gider)'
+    """, [bugun_str])
     
-    col1, col2 = st.columns(2)
+    # Bugünün Brüt Ciro ve Net Durum Hesaplaması
+    df_brut_gelir = run_query_df("""
+        SELECT SUM(tutar) as brut_gelir 
+        FROM dukkan_hareket 
+        WHERE SUBSTR(tarih, 1, 10) = ? AND islem_tipi = 'Günlük Satış (Gelir)'
+    """, [bugun_str])
+    
+    d_adet = df_dukkan_bugun['adet'].iloc[0] if not df_dukkan_bugun.empty and pd.notnull(df_dukkan_bugun['adet'].iloc[0]) else 0
+    d_gider = df_gider_bugun['toplam_gider'].iloc[0] if not df_gider_bugun.empty and pd.notnull(df_gider_bugun['toplam_gider'].iloc[0]) else 0.0
+    d_brut = df_brut_gelir['brut_gelir'].iloc[0] if not df_brut_gelir.empty and pd.notnull(df_brut_gelir['brut_gelir'].iloc[0]) else 0.0
+    d_net = d_brut - d_gider
+    
+    # Alt Kartların Gösterimi (Midye, Gider ve Net Ciro bir arada)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("Bugün Dükkan Midye", f"{int(d_adet):,} adet")
+        st.metric("Bugün Satılan Midye", f"{int(d_adet):,} adet")
     with col2:
-        st.metric("Bugün Dükkan Ciro", f"{d_ciro:,.2f} TL")
+        st.metric("Bugünkü Brüt Ciro", f"{d_brut:,.2f} TL")
+    with col3:
+        st.metric("Bugünkü Toplam Gider", f"{d_gider:,.2f} TL", delta_color="inverse")
+    with col4:
+        st.metric("Bugünkü Net Ciro", f"{d_net:,.2f} TL")
     
     st.write("**Son Dükkan Kayıtları**")
-    df_dukkan_view = run_query_df("SELECT tarih as 'Tarih', kategori as 'Kategori', miktar as 'Adet', tutar as 'Tutar' FROM dukkan_hareket ORDER BY id DESC LIMIT 10")
-    st.dataframe(df_dukkan_view, use_container_width=True)
+    df_dukkan_view = run_query_df("SELECT id as 'ID', tarih as 'Tarih', islem_tipi as 'İşlem Tipi', kategori as 'Kategori', urun_adi as 'Açıklama', miktar as 'Adet', tutar as 'Tutar' FROM dukkan_hareket ORDER BY id DESC LIMIT 10")
+    st.dataframe(df_dukkan_view, use_container_width=True, hide_index=True)
 
 # ==========================================
 # 2. SEKME: TOPTAN (DÜZENLİ ALT SEKME YAPISI)
